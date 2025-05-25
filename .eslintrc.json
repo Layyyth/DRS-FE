@@ -1,0 +1,15 @@
+{
+  "extends": ["eslint:recommended", "plugin:react/recommended"],
+  "plugins": ["react", "react-hooks"],
+  "rules": {
+    "no-unused-vars": [
+      "error",
+      { "vars": "all", "args": "after-used", "ignoreRestSiblings": false }
+    ]
+  },
+  "settings": {
+    "react": {
+      "version": "detect"
+    }
+  }
+}
