@@ -1,5 +1,4 @@
-// Import necessary modules and components
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import {
   Autocomplete,
@@ -13,103 +12,249 @@ import {
   Alert,
   Stack,
   IconButton,
-} from "@mui/material"; // Material-UI components
-import { allergies, goals, diets, activites, genders } from "../helpers/config"; // Helper configurations
-import { login, logout } from "../features/accountSlice"; // Redux actions
-import { Icon } from "@iconify/react/dist/iconify.js"; // Iconify for icons
-import SwitchThemeButton from "./SwitchThemeButton"; // Custom theme switch button
-import { useGuard } from "../hooks/useGuard"; // Custom hook for guarding routes
-import { getFromLocal, mergeObjects, slg2str } from "../helpers/functions"; // Helper functions
-import { patchRequest } from "../models/requests"; // Function for making POST requests
-import dayjs from "dayjs"; // Day.js for date handling
-import { useTheme } from "../features/themeContext"; // Custom theme context
+} from "@mui/material";
 import { DatePicker } from "@mui/x-date-pickers";
+import dayjs from "dayjs";
 
-// Function to process and take data from the form
-function takeData(event, selectedAllergiesObjs = [], birthdate) {
-  const formData = new FormData(event.currentTarget); // Get form data
-  let formJson = Object.fromEntries(formData.entries()); // Convert form data to JSON
-  const finalData = {};
+// Imports
+import { allergies, goals, diets, activites, genders } from "../helpers/config";
+import { logout } from "../features/accountSlice";
+import { Icon } from "@iconify/react/dist/iconify.js";
+import SwitchThemeButton from "./SwitchThemeButton";
+import { useGuard } from "../hooks/useGuard";
+import { mergeObjects, slg2str } from "../helpers/functions";
+import { patchRequest } from "../models/requests";
+import { useTheme } from "../features/themeContext";
 
-  // Check and set age
-  // if (formJson.age) {
-  //   finalData.age = +formJson.age;
-  //   if (formJson.age < 7) return finalData;
-  // }
+// Constants for validation
+const MIN_WEIGHT = 30;
+const MIN_HEIGHT = 70;
 
-  // Check and set weight
+/**
+ * Validates and processes form data
+ * @param {Event} event - Form submit event
+ * @param {Array} selectedAllergiesObjs - Selected allergies array
+ * @param {Object} birthdate - Dayjs birthdate object
+ * @returns {Object} Processed form data
+ */
+function processFormData(event, selectedAllergiesObjs = [], birthdate) {
+  const formData = new FormData(event.currentTarget);
+  const formJson = Object.fromEntries(formData.entries());
+  const processedData = {};
+
+  // Process name
+  if (formJson.name?.trim()) {
+    processedData.name = formJson.name.trim();
+  }
+
+  // Process and validate weight
   if (formJson.weight) {
-    finalData.weight = +formJson.weight;
-    if (formJson.weight < 30) return finalData;
+    const weight = Number(formJson.weight);
+    if (weight >= MIN_WEIGHT) {
+      processedData.weight = weight;
+    }
   }
 
-  // Check and set height
+  // Process and validate height
   if (formJson.height) {
-    finalData.height = +formJson.height;
-    if (formJson.height < 70) return finalData;
+    const height = Number(formJson.height);
+    if (height >= MIN_HEIGHT) {
+      processedData.height = height;
+    }
   }
 
-  if (formJson.name) {
-    finalData.name = formJson.name;
+  // Process allergies
+  processedData.allergies = selectedAllergiesObjs.map(
+    (allergy) => allergy.value
+  );
+
+  // Process goal
+  const selectedGoal = goals.find(
+    (goal) =>
+      goal.value ===
+      document.getElementById("goal-tag")?.value?.toLowerCase().split(" ")[0]
+  );
+  if (selectedGoal) {
+    processedData.goal = selectedGoal.value;
   }
 
-  // Process selected allergies
-  finalData.allergies = [];
-  selectedAllergiesObjs.map((al) => finalData.allergies.push(al.value));
+  // Process gender
+  const selectedGender = genders.find(
+    (gender) => gender.label === document.getElementById("gender-tag")?.value
+  );
+  if (selectedGender) {
+    processedData.gender = selectedGender.value;
+  }
 
-  // Set goal
-  finalData.goal = goals.find((goal) =>
-    goal.label === document.getElementById("goal-tag").value ? goal : null
-  )?.value;
-  if (!finalData.goal) delete finalData.goal;
+  // Process diet preference
+  const selectedDiet = diets.find(
+    (diet) => diet.label === document.getElementById("diet-tag")?.value
+  );
+  if (selectedDiet) {
+    processedData.preferred_diet = selectedDiet.value;
+  }
 
-  // Set gender
-  finalData.gender = genders.find((gender) =>
-    gender.label === document.getElementById("gender-tag").value ? gender : null
-  )?.value;
-  if (!finalData.gender) delete finalData.gender;
+  // Process activity level
+  const selectedActivity = activites.find(
+    (activity) =>
+      activity.label === document.getElementById("activity-tag")?.value
+  );
+  if (selectedActivity) {
+    processedData.activity_level = selectedActivity.value;
+  }
 
-  // Set diet
-  finalData.diet_preference =
-    diets.find((diet) =>
-      diet.label === document.getElementById("diet-tag").value ? diet : null
-    )?.value || null;
+  // Process birthdate
+  if (birthdate) {
+    processedData.birthdate = dayjs(birthdate).format("YYYY-MM-DD");
+  }
 
-  // Set activity level
-  finalData.activity_level = activites.find((activity) =>
-    activity.label === document.getElementById("activity-tag").value
-      ? activity
-      : null
-  )?.value;
-  if (!finalData.activity_level) delete finalData.activity_level;
-
-  finalData.birthdate = birthdate
-    ? dayjs(birthdate).format("YYYY-MM-DD")
-    : null;
-
-  return finalData;
+  return processedData;
 }
 
-// InfoForm component
+/**
+ * Validates required form fields
+ * @param {Object} data - Form data to validate
+ * @returns {Array} Array of missing field names
+ */
+function validateRequiredFields(data) {
+  const requiredFields = [
+    "name",
+    "birthdate",
+    "weight",
+    "height",
+    "gender",
+    "goal",
+    "activity_level",
+  ];
+  console.log(data);
+  return requiredFields.filter((field) => !data[field]);
+}
+
+/**
+ * Creates default option object for autocomplete fields
+ * @param {string} value - Field value
+ * @returns {Object|null} Option object or null
+ */
+function createDefaultOption(value) {
+  if (!value) return null;
+  return {
+    label: slg2str(value),
+    value: value,
+  };
+}
+
 function InfoForm() {
-  const { user } = useSelector((store) => store.account); // Get user info from Redux store
-  const dispatch = useDispatch(); // Get dispatch function
-  const [dialogMsg, setDialogMsg] = useState(""); // State for dialog message
-  const [selectedAllergies, setSelectedAllergies] = useState(
-    user?.NutriInfo?.allergies?.map((alg) => {
-      return { label: slg2str(alg), value: alg };
-    })
-  ); // State for selected allergies
-  const [birthdate, setBirthdate] = useState(null); // State for birthdate
-  const [theme, setTheme] = useTheme(); // Custom theme context
+  // Redux state
+  const { user } = useSelector((store) => store.account);
+  const dispatch = useDispatch();
+
+  // Component state
+  const [dialogMsg, setDialogMsg] = useState("");
+  const [selectedAllergies, setSelectedAllergies] = useState([]);
+  const [birthdate, setBirthdate] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Guard to check if the user can render this component
-  const canRednder = useGuard(
+  // Theme context
+  const [theme, setTheme] = useTheme();
+
+  // Initialize component state based on user data
+  useEffect(() => {
+    if (user) {
+      // Set allergies from user data
+      if (user.allergies?.length > 0) {
+        const userAllergies = user.allergies.map((allergy) => ({
+          label: slg2str(allergy),
+          value: allergy,
+        }));
+        setSelectedAllergies(userAllergies);
+      }
+
+      // Set birthdate from user data
+      if (user.birthdate) {
+        setBirthdate(dayjs(user.birthdate));
+      }
+    }
+  }, [user]);
+
+  // Route guard - redirect if user info is already gathered
+  const canRender = useGuard(
     !(user?.info_gathered && user?.info_gathered_init),
     "/"
   );
-  if (!canRednder) return;
+
+  if (!canRender) return null;
+
+  // Determine if this is an edit mode or initial setup
+  const isEditMode = user?.info_gathered;
+  const isInitialSetup = user?.info_gathered_init;
+
+  /**
+   * Handles form submission
+   */
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setDialogMsg(""); // Clear previous error messages
+
+    try {
+      setIsLoading(true);
+
+      // Process form data
+      const processedData = processFormData(
+        event,
+        selectedAllergies,
+        birthdate
+      );
+
+      // Validate required fields
+      const missingFields = validateRequiredFields(processedData);
+      if (missingFields.length > 0) {
+        setDialogMsg("Please fill in all required fields correctly");
+        return;
+      }
+
+      // Prepare data for API request
+      const requestBody = {
+        ...mergeObjects({ ...user, info_gathered: true }, processedData),
+      };
+
+      // Send update request
+      await patchRequest("user/update-health-form", requestBody);
+
+      // Reload page to refresh user data
+      location.reload();
+    } catch (error) {
+      console.error("Error updating user info:", error);
+      setDialogMsg("Something went wrong. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * Handles cancel action for edit mode
+   */
+  const handleCancel = async () => {
+    try {
+      await patchRequest("user/update-health-form", {
+        info_gathered: true,
+      });
+      location.reload();
+    } catch (error) {
+      console.error("Error canceling edit:", error);
+    }
+  };
+
+  /**
+   * Handles allergy selection changes
+   */
+  const handleAllergyChange = (_, newValues) => {
+    // Remove duplicates based on value property
+    const uniqueValues = newValues.filter(
+      (item, index, self) =>
+        self.findIndex((selfItem) => selfItem.value === item.value) === index
+    );
+    setSelectedAllergies(uniqueValues);
+  };
 
   return (
     <Dialog
@@ -122,42 +267,10 @@ function InfoForm() {
           borderRadius: "10px",
         },
         component: "form",
-        onSubmit: async (e) => {
-          e.preventDefault();
-          try {
-            setIsLoading(true);
-
-            const data = takeData(e, selectedAllergies, birthdate);
-            if (
-              !data.name ||
-              !data.birthdate ||
-              !data.weight ||
-              !data.height ||
-              !data.gender ||
-              !data.goal ||
-              !data.activity_level
-            )
-              return setDialogMsg("Please fill in the inputs correctly");
-
-            // const token = getFromLocal("access_token");
-            // console.log(newDataObj);
-            const body = {
-              ...mergeObjects({ ...user.NutriInfo, info_gathered: true }, data),
-            };
-            // console.log(body);
-            const user2 = await patchRequest("user/update-health-form", body);
-            // console.log(user);
-            location.reload();
-            // if (user2) dispatch(login({ user: user2 }));
-            // else toast("Something went wrong");
-          } catch (e) {
-            console.log(e);
-          } finally {
-            setIsLoading(false);
-          }
-        },
+        onSubmit: handleSubmit,
       }}
     >
+      {/* Dialog Header */}
       <Stack
         display="flex"
         direction="row"
@@ -166,11 +279,12 @@ function InfoForm() {
         justifyContent="center"
       >
         <DialogTitle>
-          {user?.info_gathered ? "Editing" : "Gathering"} your info
+          {isEditMode ? "Editing" : "Gathering"} your info
         </DialogTitle>
         <SwitchThemeButton theme={theme} setTheme={setTheme} />
       </Stack>
 
+      {/* Dialog Content */}
       <DialogContent
         style={{
           display: "grid",
@@ -180,101 +294,100 @@ function InfoForm() {
       >
         <DialogContentText>
           <strong>
-            Please{" "}
-            {user?.info_gathered ? "edit any input" : "fill in your info"} to
+            Please {isEditMode ? "edit any input" : "fill in your info"} to
             store it in <span style={{ color: "#0369a1" }}>your account</span>
           </strong>
         </DialogContentText>
 
+        {/* Name Field */}
         <TextField
           autoFocus
           type="text"
           margin="dense"
           id="name"
           name="name"
-          label="Name"
+          label="Name *"
           variant="standard"
+          defaultValue={user?.name || ""}
         />
 
+        {/* Birthdate Field */}
         <DatePicker
-          label="Select Date"
+          label="Birthdate *"
           value={birthdate}
           onChange={(newValue) => setBirthdate(newValue)}
           renderInput={(params) => <TextField {...params} />}
         />
 
+        {/* Weight Field */}
         <TextField
-          autoFocus
           type="number"
           margin="dense"
           id="weight"
           name="weight"
-          label="Weight"
+          label={`Weight * (min ${MIN_WEIGHT}kg)`}
           variant="standard"
-          defaultValue={user?.NutriInfo?.weight}
+          defaultValue={user?.weight || ""}
+          inputProps={{ min: MIN_WEIGHT }}
         />
 
+        {/* Height Field */}
         <TextField
-          autoFocus
           type="number"
           margin="dense"
           id="height"
           name="height"
-          label="Height"
+          label={`Height * (min ${MIN_HEIGHT}cm)`}
           variant="standard"
-          defaultValue={user?.NutriInfo?.height}
+          defaultValue={user?.height || ""}
+          inputProps={{ min: MIN_HEIGHT }}
         />
 
+        {/* Gender Field */}
         <Autocomplete
           id="gender-tag"
           options={genders}
           getOptionLabel={(option) => option.label}
           renderInput={(params) => (
-            <TextField {...params} label="Gender" placeholder="Gender" />
+            <TextField
+              {...params}
+              label="Gender *"
+              placeholder="Select gender"
+            />
           )}
-          defaultValue={{
-            label: slg2str(user?.NutriInfo?.gender),
-            value: user?.NutriInfo?.gender,
-          }}
+          defaultValue={createDefaultOption(user?.gender)}
         />
 
+        {/* Allergies Field */}
         <Autocomplete
           limitTags={2}
           multiple
           id="allergy-tag"
           options={allergies}
-          value={selectedAllergies} // Explicitly bind to selectedAllergies state
-          onChange={(_, newValues) => {
-            // Remove duplicates based on `value`
-            const uniqueValues = newValues.filter(
-              (v, i, self) =>
-                self.findIndex((item) => item.value === v.value) === i
-            );
-            setSelectedAllergies(uniqueValues);
-          }}
+          value={selectedAllergies}
+          onChange={handleAllergyChange}
           getOptionLabel={(option) => option.label}
           renderInput={(params) => (
             <TextField
               {...params}
               label="Allergies (optional)"
-              placeholder="Allergies (optional)"
+              placeholder="Select allergies"
             />
           )}
         />
 
+        {/* Goal Field */}
         <Autocomplete
           id="goal-tag"
           options={goals}
           getOptionLabel={(option) => option.label}
           renderInput={(params) => (
-            <TextField {...params} label="Goal" placeholder="Goal" />
+            <TextField {...params} label="Goal *" placeholder="Select goal" />
           )}
-          defaultValue={{
-            label: slg2str(user?.NutriInfo?.goal),
-            value: user?.NutriInfo?.goal,
-          }}
+          defaultValue={createDefaultOption(user?.goal)}
         />
 
+        {/* Diet Preferences Field */}
         <Autocomplete
           id="diet-tag"
           options={diets}
@@ -282,31 +395,33 @@ function InfoForm() {
           renderInput={(params) => (
             <TextField
               {...params}
-              label="Diet Prefrences (optional)"
-              placeholder="Diet Prefrences (optional)"
+              label="Diet Preferences (optional)"
+              placeholder="Select diet preference"
             />
           )}
-          defaultValue={{
-            label: slg2str(user?.NutriInfo?.diet),
-            value: user?.NutriInfo?.diet,
-          }}
+          defaultValue={createDefaultOption(user?.preferred_diet)}
         />
 
+        {/* Activity Level Field */}
         <Autocomplete
           id="activity-tag"
           options={activites}
           getOptionLabel={(option) => option.label}
           renderInput={(params) => (
-            <TextField {...params} label="Activity" placeholder="Activity" />
+            <TextField
+              {...params}
+              label="Activity Level *"
+              placeholder="Select activity level"
+            />
           )}
-          defaultValue={{
-            label: slg2str(user?.NutriInfo?.activity),
-            value: user?.NutriInfo?.activity,
-          }}
+          defaultValue={createDefaultOption(user?.activity_level)}
         />
 
+        {/* Error Message */}
         {dialogMsg && <Alert severity="error">{dialogMsg}</Alert>}
       </DialogContent>
+
+      {/* Dialog Actions */}
       <DialogActions
         style={{
           display: "flex",
@@ -318,17 +433,9 @@ function InfoForm() {
           width: "90%",
         }}
       >
-        {user?.info_gathered_init ? (
-          <Button
-            variant="test"
-            onClick={async () => {
-              const res = await patchRequest("info-gathered-toggle", {
-                access_token: getFromLocal("access_token"),
-              });
-
-              dispatch(login(res.user));
-            }}
-          >
+        {/* Cancel/Logout Button */}
+        {isInitialSetup ? (
+          <Button variant="text" onClick={handleCancel}>
             Cancel
           </Button>
         ) : (
@@ -337,11 +444,13 @@ function InfoForm() {
             variant="contained"
             type="button"
             onClick={() => dispatch(logout())}
+            title="Logout"
           >
             <Icon icon="stash:signout-light" width="30px" height="30px" />
           </IconButton>
         )}
 
+        {/* Submit Button */}
         <Button
           style={{ margin: 0 }}
           color="success"
@@ -349,7 +458,7 @@ function InfoForm() {
           type="submit"
           disabled={isLoading}
         >
-          {user?.info_gathered_init ? "Edit" : "Continue"}
+          {isInitialSetup ? "Edit" : "Continue"}
         </Button>
       </DialogActions>
     </Dialog>

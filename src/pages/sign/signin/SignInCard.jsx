@@ -17,7 +17,11 @@ import { styled } from "@mui/material/styles";
 
 import ForgotPassword from "./ForgotPassword";
 import { GoogleIcon, SitemarkIcon } from "../CustomIcons";
-import { signInWithGoogle, postRequest } from "../../../models/requests";
+import {
+  signInWithGoogle,
+  postRequest,
+  updateTokenInHeaders,
+} from "../../../models/requests";
 import { Alert } from "@mui/material";
 import { saveToLocal } from "../../../helpers/functions";
 import { getFavMeals } from "../../../features/nutriSlice";
@@ -77,6 +81,8 @@ export default function SignInCard() {
 
     saveToLocal("access_token", response.access_token); // lives for 15min
     saveToLocal("refresh_token", response.refresh_token); // lives for longer
+
+    updateTokenInHeaders(response.access_token); // Update the token in requests.js default header object
 
     dispatch(login({ user: response.user })); // Log in the user
 
